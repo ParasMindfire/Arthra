@@ -11,17 +11,47 @@ Directory structure:
     │       │       └── paras/
     │       │           └── Arthra/
     │       │               ├── ArthraApplication.java
+    │       │               ├── config/
+    │       │               │   └── SecurityConfig.java
     │       │               ├── controller/
+    │       │               │   ├── CategoryController.java
+    │       │               │   ├── DasBoardController.java
+    │       │               │   ├── ExpenseController.java
+    │       │               │   ├── FilterController.java
     │       │               │   ├── HomeController.java
+    │       │               │   ├── IncomeController.java
     │       │               │   └── ProfileController.java
     │       │               ├── dto/
-    │       │               │   └── ProfileDTO.java
+    │       │               │   ├── AuthDTO.java
+    │       │               │   ├── CategoryDTO.java
+    │       │               │   ├── ExpenseDTO.java
+    │       │               │   ├── FilterrDTO.java
+    │       │               │   ├── IncomeDTO.java
+    │       │               │   ├── ProfileDTO.java
+    │       │               │   └── RecentTransactionDTO.java
     │       │               ├── entity/
+    │       │               │   ├── CategoryEntity.java
+    │       │               │   ├── ExpenseEntity.java
+    │       │               │   ├── IncomeEntity.java
     │       │               │   └── ProfileEntity.java
     │       │               ├── repository/
+    │       │               │   ├── CategoryRepository.java
+    │       │               │   ├── ExpenseRepository.java
+    │       │               │   ├── IncomeRepository.java
     │       │               │   └── ProfileRepository.java
-    │       │               └── service/
-    │       │                   └── ProfileService.java
+    │       │               ├── security/
+    │       │               │   └── JwtRequestFilter.java
+    │       │               ├── service/
+    │       │               │   ├── AppUserDetailService.java
+    │       │               │   ├── CategoryService.java
+    │       │               │   ├── DashBoardService.java
+    │       │               │   ├── EmailService.java
+    │       │               │   ├── ExpenseService.java
+    │       │               │   ├── IncomeService.java
+    │       │               │   ├── NotificationService.java
+    │       │               │   └── ProfileService.java
+    │       │               └── util/
+    │       │                   └── JwtUtil.java
     │       └── resources/
     │           └── application.properties
     └── .mvn/
@@ -504,6 +534,10 @@ FILE: pom.xml
     </dependency>
     <dependency>
         <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-devtools</artifactId>
         <scope>runtime</scope>
         <optional>true</optional>
@@ -586,7 +620,9 @@ package com.paras.Arthra;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+@EnableScheduling
 @SpringBootApplication
 public class ArthraApplication {
 
@@ -594,6 +630,286 @@ public class ArthraApplication {
 		SpringApplication.run(ArthraApplication.class, args);
 	}
 
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/config/SecurityConfig.java
+================================================
+package com.paras.Arthra.config;
+
+import java.util.List;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import com.paras.Arthra.security.JwtRequestFilter;
+import com.paras.Arthra.service.AppUserDetailService;
+
+import lombok.RequiredArgsConstructor;
+
+@Configuration
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final AppUserDetailService appUserDetailsService;
+    private final JwtRequestFilter jwtRequestFilter;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception{
+        httpSecurity.cors(Customizer.withDefaults()) // Enable CORS
+                    .csrf(AbstractHttpConfigurer::disable) // Disable CSRF (not needed for JWT)
+                    .authorizeHttpRequests(auth->auth.requestMatchers("/status","/health","/activate","/register","/login").permitAll() // Public endpoints
+                    .anyRequest().authenticated()) // All other endpoints require authentication
+                    .sessionManagement(session->session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // No sessions
+                    .addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class); 
+                    /*Without the .addFilterBefore() call:
+                        1)Your JwtRequestFilter exists as a Spring @Component
+                        2)But it's NOT part of the Spring Security filter chain
+                        3)Spring Security doesn't know about your JWT filter
+                        4)Only default Spring Security filters run
+
+                        This line is executed only ONCE during application startup when Spring Security builds the filter chain. It's not called for each request.
+
+                        Using UsernamePasswordAuthenticationFilter.class is a convention, not a requirement. You can use other filter classes as reference points . The key is ensuring your JWT filter runs before the authorization check so it can set authentication in the SecurityContext. As long as that's satisfied, the exact position doesn't matter much functionally!
+                    */
+        return httpSecurity.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder(){
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(){
+        CorsConfiguration configuration =new CorsConfiguration();
+        configuration.setAllowedOriginPatterns(List.of("*"));
+        configuration.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization","Content-Type","Accept"));
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source=new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration); //Maps your CORS configuration to all URLs in your application.
+
+        return source;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(){
+        DaoAuthenticationProvider authenticationProvider=new DaoAuthenticationProvider();
+        authenticationProvider.setUserDetailsService(appUserDetailsService);
+        authenticationProvider.setPasswordEncoder(passwordEncoder());
+        return new ProviderManager(authenticationProvider);
+    }
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/controller/CategoryController.java
+================================================
+package com.paras.Arthra.controller;
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.paras.Arthra.dto.CategoryDTO;
+import com.paras.Arthra.service.CategoryService;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/categories")
+public class CategoryController {
+    private final CategoryService categoryService;
+    
+    @PostMapping
+    public ResponseEntity<CategoryDTO> saveCategory(@RequestBody CategoryDTO categoryDTO){
+        CategoryDTO savedCategory=categoryService.saveCategory(categoryDTO);
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedCategory);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<CategoryDTO>> getCategories(){
+        List<CategoryDTO> categories=categoryService.getCategoriesForCurrentUser();
+        return ResponseEntity.ok(categories);
+    }
+
+    @GetMapping("/{type}")
+    public ResponseEntity<List<CategoryDTO>> getCategoriesByTypeForCurrentUser(@PathVariable String type){
+        List<CategoryDTO> list=categoryService.getCategoriesByTypeForCurrentUser(type);
+        return ResponseEntity.ok(list);
+    }
+
+    @PutMapping("/{categoryId}")
+    public ResponseEntity<CategoryDTO> updateCategory(@PathVariable Long categoryId,
+                                                      @RequestBody CategoryDTO categoryDTO){
+        CategoryDTO updatedCate=categoryService.updateCategory(categoryId, categoryDTO);
+        return ResponseEntity.ok(updatedCate);
+    }
+
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/controller/DasBoardController.java
+================================================
+package com.paras.Arthra.controller;
+
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.paras.Arthra.service.DashBoardService;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/dashboard")
+@RequiredArgsConstructor
+public class DasBoardController {
+    private final DashBoardService dashBoardService;
+
+    @GetMapping
+    public ResponseEntity<Map<String,Object>>getDashBoardData(){
+        Map<String,Object>dashBoardData=dashBoardService.getDashboardData();
+        return ResponseEntity.ok(dashBoardData);
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/controller/ExpenseController.java
+================================================
+package com.paras.Arthra.controller;
+
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.paras.Arthra.dto.ExpenseDTO;
+import com.paras.Arthra.service.ExpenseService;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/expenses")
+@RequiredArgsConstructor
+public class ExpenseController {
+    private final ExpenseService expenseService;
+    
+    @PostMapping
+    public ResponseEntity<ExpenseDTO> addExpense(@RequestBody ExpenseDTO dto){
+        ExpenseDTO saved=expenseService.addExpense(dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ExpenseDTO>> getExpense(){
+        System.out.println("Yahan ayah");
+        List<ExpenseDTO>expenses=expenseService.getCurrentMonthExpensesForCurrentUser();
+        return ResponseEntity.ok(expenses);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteExpense(@PathVariable Long id) {
+        System.out.println("Aur yahan ");
+        expenseService.deleteExpense(id);
+        return ResponseEntity.noContent().build();
+    }
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/controller/FilterController.java
+================================================
+package com.paras.Arthra.controller;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.paras.Arthra.dto.ExpenseDTO;
+import com.paras.Arthra.dto.FilterrDTO;
+import com.paras.Arthra.dto.IncomeDTO;
+import com.paras.Arthra.service.ExpenseService;
+import com.paras.Arthra.service.IncomeService;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/filter")
+@RequiredArgsConstructor
+public class FilterController {
+    private final ExpenseService expenseService;
+    private final IncomeService incomeService;
+
+    @PostMapping
+    public ResponseEntity<?>filterTransaction(@RequestBody FilterrDTO filter){
+        LocalDate startDate = filter.getStartDate() != null ? filter.getStartDate() : LocalDate.MIN;
+        LocalDate endDate = filter.getEndDate() != null ? filter.getEndDate() : LocalDate.now();
+        String keyword = filter.getKeyword() != null ? filter.getKeyword() : "";
+        String sortField = filter.getSortField() != null ? filter.getSortField() : "date";
+        Sort.Direction direction = "desc".equalsIgnoreCase(filter.getSortOrder()) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        Sort sort = Sort.by(direction, sortField);
+        if ("income".equals(filter.getType())) {
+            List<IncomeDTO> incomes = incomeService.filterIncomes(startDate, endDate, keyword, sort);
+            return ResponseEntity.ok(incomes);
+        } else if ("expense".equalsIgnoreCase(filter.getType())) {
+            List<ExpenseDTO> expenses = expenseService.filterExpenses(startDate, endDate, keyword, sort);
+            return ResponseEntity.ok(expenses);
+        } else {
+            return ResponseEntity.badRequest().body("Invalid type. Must be 'income' or 'expense'");
+        }
+    }
 }
 
 
@@ -620,15 +936,71 @@ public class HomeController {
 
 
 ================================================
+FILE: src/main/java/com/paras/Arthra/controller/IncomeController.java
+================================================
+package com.paras.Arthra.controller;
+
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.paras.Arthra.dto.IncomeDTO;
+import com.paras.Arthra.service.IncomeService;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/incomes")
+@RequiredArgsConstructor
+public class IncomeController {
+    private final IncomeService incomeService;
+
+    @PostMapping
+    public ResponseEntity<IncomeDTO> addExpense(@RequestBody IncomeDTO dto){
+        IncomeDTO saved=incomeService.addExpense(dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<IncomeDTO>> getIncome(){
+        List<IncomeDTO>incomes=incomeService.getCurrentMonthIncomesForCurrentUser();
+        return ResponseEntity.ok(incomes);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteIncome(@PathVariable Long id){
+        System.out.println("Hii controller");
+        incomeService.deleteIncome(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+
+
+
+================================================
 FILE: src/main/java/com/paras/Arthra/controller/ProfileController.java
 ================================================
 package com.paras.Arthra.controller;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.paras.Arthra.dto.AuthDTO;
 import com.paras.Arthra.dto.ProfileDTO;
 import com.paras.Arthra.service.ProfileService;
 
@@ -639,12 +1011,176 @@ import lombok.RequiredArgsConstructor;
 public class ProfileController {
     private final ProfileService profileService;
 
+    @PostMapping("/register")
     public ResponseEntity<ProfileDTO> registerProfile(@RequestBody ProfileDTO profileDTO){
         System.out.println("Controller "+profileDTO);
         ProfileDTO registeredProfile=profileService.registerProfile(profileDTO);
         return ResponseEntity.status(HttpStatus.CREATED).body(registeredProfile);
     }
 
+    @GetMapping("/activate")
+    public ResponseEntity<String> activateProfile(@RequestParam String token){
+        boolean isActive=profileService.activateProfile(token);
+        if(isActive){
+            return ResponseEntity.ok("Profile Activated Sucessfully");
+        }else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Activation token not found or already used");
+        }
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<Map<String,Object>>login(@RequestBody AuthDTO authDTO){
+        try {
+            if(!profileService.isAccountActive(authDTO.getEmail())){
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "message","Account is not active please activate your account first"
+                ));
+            }
+
+            Map<String,Object>response=profileService.authenticateAndGenerateToken(authDTO);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "message ",e.getMessage()
+            ));
+        }
+    }
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/AuthDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class AuthDTO {
+    private String email;
+    private String password;
+    private String token;
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/CategoryDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import java.time.LocalDateTime;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class CategoryDTO {
+    private Long id;
+    private Long profileId;
+    private String icon;
+    private String name;
+    private LocalDateTime createdAt;
+    private LocalDateTime updateddAt;
+    private String type;
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/ExpenseDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class ExpenseDTO {
+    private Long id;
+    private String name;
+    private String icon;
+    private String categoryName;
+    private Long categoryId;
+    private BigDecimal amount;
+    private LocalDate date;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/FilterrDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import java.time.LocalDate;
+
+import lombok.Data;
+
+@Data
+public class FilterrDTO {
+    private String type;
+    private LocalDate startDate;
+    private LocalDate endDate;
+    private String keyword;
+    private String sortField; //date, amount, name
+    private String sortOrder; //asc or desc
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/IncomeDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class IncomeDTO {
+    private Long id;
+    private String name;
+    private String icon;
+    private String categoryName;
+    private Long categoryId;
+    private BigDecimal amount;
+    private LocalDate date;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
 
 
@@ -675,6 +1211,232 @@ public class ProfileDTO {
     private LocalDateTime updatedAt;
     private Boolean isActive;
     private String activationToken;
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/dto/RecentTransactionDTO.java
+================================================
+package com.paras.Arthra.dto;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class RecentTransactionDTO {
+    private Long id;
+    private Long profileId;
+    private String icon;
+    private String name;
+    private BigDecimal amount;
+    private LocalDate date;
+    private LocalDateTime createdAt;
+    private LocalDateTime updateAt;
+    private String type;
+    
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/entity/CategoryEntity.java
+================================================
+package com.paras.Arthra.entity;
+
+import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+
+@Entity
+@Table(name="tbl_categories")
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class CategoryEntity {
+    @Id
+    @GeneratedValue(strategy=GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    private String icon;
+
+    @Column(updatable=false)
+    @CreationTimestamp
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    private LocalDateTime updateddAt;
+
+    private String type;
+
+
+    //whenever category is fetched it wont fetch related profile utill called thats what lazy do
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name="profile_id",nullable=false)
+    private ProfileEntity profile;
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/entity/ExpenseEntity.java
+================================================
+package com.paras.Arthra.entity;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name="tbl_expenses")
+public class ExpenseEntity {
+    @Id
+    @GeneratedValue(strategy=GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String icon;
+    private LocalDate date;
+    private BigDecimal amount;
+
+    @Column(updatable=false)
+    @CreationTimestamp
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    private LocalDateTime updatedAt;
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name="category_id",nullable=false)
+    private CategoryEntity category;
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name="profile_id",nullable=false)
+    private ProfileEntity profile;
+
+    @PrePersist
+    public void prePersist(){
+        if(this.date==null){
+            this.date=LocalDate.now();
+        }
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/entity/IncomeEntity.java
+================================================
+package com.paras.Arthra.entity;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name="tbl_incomes")
+public class IncomeEntity {
+    @Id
+    @GeneratedValue(strategy=GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String icon;
+    private LocalDate date;
+    private BigDecimal amount;
+
+    @Column(updatable=false)
+    @CreationTimestamp
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    private LocalDateTime updatedAt;
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name="category_id",nullable=false)
+    private CategoryEntity category;
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name="profile_id",nullable=false)
+    private ProfileEntity profile;
+
+    @PrePersist
+    public void prePersist(){
+        if(this.date==null){
+            this.date=LocalDate.now();
+        }
+    }
 }
 
 
@@ -747,6 +1509,112 @@ public class ProfileEntity {
 
 
 ================================================
+FILE: src/main/java/com/paras/Arthra/repository/CategoryRepository.java
+================================================
+package com.paras.Arthra.repository;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.paras.Arthra.entity.CategoryEntity;
+
+public interface CategoryRepository extends JpaRepository<CategoryEntity,Long>{
+    List<CategoryEntity>findByProfileId(Long profileId);
+    Optional<CategoryEntity>findByIdAndProfileId(Long id,Long profileId);
+    List<CategoryEntity>findByTypeAndProfileId(String type,Long profile);
+    Boolean existsByNameAndProfileId(String name,Long profileId);
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/repository/ExpenseRepository.java
+================================================
+package com.paras.Arthra.repository;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.paras.Arthra.entity.ExpenseEntity;
+
+public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
+    List<ExpenseEntity> findByProfileIdOrderByDateDesc(Long profileId);
+    List<ExpenseEntity> findTop5ByProfileIdOrderByDateDesc(Long profileId);
+
+    @Query("SELECT SUM(e.amount) from ExpenseEntity e WHERE e.profile.id=:profileId")
+    BigDecimal findTotalExpenseByProfileId(@Param("profileId") Long profileId);
+        
+    //select * from tbl_expenses where profile_id = ?1 and date between ?2 and ?3 and name like %?4%
+    List<ExpenseEntity> findByProfileIdAndDateBetweenAndNameContainingIgnoreCase(
+        Long profileId,
+        LocalDate startDate,
+        LocalDate endDate,
+        String keyword,
+        Sort sort
+    );
+
+    //select * from tbl_expenses where profile_id = ?1 and date between ?2 and ?3
+    List<ExpenseEntity> findByProfileIdAndDateBetween(Long profileId, LocalDate startDate, LocalDate endDate);
+
+    //select * from tbl_expenses where profile_id = ?1 and date = ?2
+    List<ExpenseEntity> findByProfileIdAndDate(Long profileId, LocalDate date);
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/repository/IncomeRepository.java
+================================================
+package com.paras.Arthra.repository;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.paras.Arthra.entity.IncomeEntity;
+
+public interface IncomeRepository extends JpaRepository<IncomeEntity, Long> {
+    List<IncomeEntity> findByProfileIdOrderByDateDesc(Long profileId);
+    List<IncomeEntity> findTop5ByProfileIdOrderByDateDesc(Long profileId);
+
+    @Query("SELECT SUM(e.amount) from IncomeEntity e WHERE e.profile.id=:profileId")
+    BigDecimal findTotalExpenseByProfileId(@Param("profileId") Long profileId);
+        
+    //select * from tbl_incomes where profile_id = ?1 and date between ?2 and ?3 and name like %?4%
+    List<IncomeEntity> findByProfileIdAndDateBetweenAndNameContainingIgnoreCase(
+        Long profileId,
+        LocalDate startDate,
+        LocalDate endDate,
+        String keyword,
+        Sort sort
+    );
+
+    //select * from tbl_incomes where profile_id = ?1 and date between ?2 and ?3
+    List<IncomeEntity> findByProfileIdAndDateBetween(Long profileId, LocalDate startDate, LocalDate endDate);
+
+    //select * from tbl_incomes where profile_id = ?1 and date = ?2
+    List<IncomeEntity> findByProfileIdAndDate(Long profileId, LocalDate date);
+}
+
+
+
+
+
+================================================
 FILE: src/main/java/com/paras/Arthra/repository/ProfileRepository.java
 ================================================
 package com.paras.Arthra.repository;
@@ -760,6 +1628,667 @@ import com.paras.Arthra.entity.ProfileEntity;
 public interface ProfileRepository extends JpaRepository<ProfileEntity, Long> {
     //The method will return an Optional containing the ProfileEntity if a profile with the given email exists in the database.If no such profile is found, it returns an empty Optional (not null)
     Optional<ProfileEntity>findByEmail(String email);
+    Optional<ProfileEntity>findByActivationToken(String activationToken);
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/security/JwtRequestFilter.java
+================================================
+package com.paras.Arthra.security;
+
+import java.io.IOException;
+
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import com.paras.Arthra.util.JwtUtil;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+
+
+@Component
+@RequiredArgsConstructor
+public class JwtRequestFilter extends OncePerRequestFilter{
+    private final UserDetailsService userDetailsService;
+    private final JwtUtil jwtUtil;
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+                final String authHeader = request.getHeader("Authorization");
+                String email=null;
+                String jwt=null;
+
+                if(authHeader!=null && authHeader.startsWith("Bearer ")){
+                    jwt=authHeader.substring(7);
+                    email=jwtUtil.extractUsername(jwt);
+                }
+
+                if(email!=null && SecurityContextHolder.getContext().getAuthentication()==null){
+                    UserDetails userDetails = this.userDetailsService.loadUserByUsername(email);
+                    if(jwtUtil.validateToken(jwt, userDetails)){
+                        UsernamePasswordAuthenticationToken authToken=new UsernamePasswordAuthenticationToken(userDetails,null,userDetails.getAuthorities());
+
+                        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                        SecurityContextHolder.getContext().setAuthentication(authToken);
+                    }
+                }
+
+                filterChain.doFilter(request, response);
+    }
+
+
+    /*
+        Step-by-step Spring Security JWT-based Authorization Flow:
+
+        1. Application Startup:
+        - Spring Boot configures the SecurityFilterChain exactly once at startup.
+        - Your security configuration declares which endpoints are public ("/register", "/login", etc.) and which require authentication (`anyRequest().authenticated()`).
+        - CSRF is disabled (not needed for stateless APIs/JWT usage).
+        - CORS (cross-origin resource sharing) is enabled.
+        - Session management is set to STATELESSâ€”no sessions are created or stored by Spring.
+
+        2. How Filters Work:
+        - You add your custom JwtRequestFilter BEFORE the UsernamePasswordAuthenticationFilter in the filter chain.
+        - This means on each HTTP request, your JwtRequestFilter:
+            a) Runs BEFORE Spring Security checks if the user is authenticated for protected endpoints.
+            b) Can populate the SecurityContext for further processing down the chain.
+
+        3. On Every Incoming HTTP Request:
+        - JwtRequestFilter.doFilterInternal() is triggered.
+        - It checks the "Authorization" HTTP header:
+            a) If present AND starts with "Bearer ", extracts the JWT token substring.
+            b) Calls jwtUtil.extractUsername(jwt) to extract the user's email from the JWT.
+
+        4. Checking Existing Authentication:
+        - If the extracted email IS NOT null AND SecurityContextHolder.getContext().getAuthentication() == null
+            (i.e., this request is not already authenticated by another filter):
+            a) Uses your UserDetailsService to load the user object for the extracted email (principal).
+            b) Calls jwtUtil.validateToken(jwt, userDetails) to verify the JWT is valid for this user (checks signature, expiration, etc.).
+
+        5. Populating SecurityContext:
+        - If the token is valid:
+            a) Creates a UsernamePasswordAuthenticationToken with the userDetails as principal, null for credentials (not needed), user roles as authorities.
+            b) Populates web authentication details (IP address, etc.) for audit/compliance.
+            c) Sets this Authentication object in SecurityContextHolder.getContext().setAuthentication(authToken).
+            d) Now, the rest of Spring Security (downstream filters, controller methods, security annotations) sees the request as authenticated and authorized as per roles.
+
+        6. Authorization Enforcement:
+        - Now, as the request proceeds:
+            a) If the path is PUBLIC ("/login", "/register", etc.), it is always allowed, no authentication needed.
+            b) If the path is PROTECTED (any other endpoint), Spring Security checks SecurityContext for authentication. Your filter already set the Authentication object, so:
+                â€¢ User identity is known (from JWT).
+                â€¢ Roles/authorities are available for @PreAuthorize, @Secured, etc. to enforce method/endpoint-level access control. 
+                â€¢ You can access the authorized user via SecurityContextHolder.getContext().getAuthentication() in your services/controllers.
+
+        7. Final Step:
+        - Request processing continues with filterChain.doFilter(request, response).
+        - If the JWT is invalid/expired/not present, and endpoint is protected, access is denied.
+
+        // Key Concepts:
+        // - Your filter is responsible for extracting and validating the JWT,
+        //   loading the user, and putting authentication into SecurityContext.
+        // - Authorization is handled automatically by Spring Security based
+        //   on roles/authorities present in SecurityContext after your filter runs.
+        // - No session state is kept on the server: the JWT acts as a portable security token.
+
+        // This process ensures every request to a protected endpoint is authenticated by stateless JWT, 
+        // and user's authorization is enforced based on roles in their token and user account.
+    */
+
+
+    
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/AppUserDetailService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.util.Collections;
+
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import com.paras.Arthra.entity.ProfileEntity;
+import com.paras.Arthra.repository.ProfileRepository;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class AppUserDetailService implements UserDetailsService {
+    private final ProfileRepository profileRepository;
+
+    //AppUserDetailService.loadUserByUsername() method returns is what gets stored in the SecurityContext.
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        ProfileEntity existingProfile=profileRepository.findByEmail(email)
+            .orElseThrow(()->new UsernameNotFoundException("Profile not found with email "+email));
+
+        return User.builder().  
+                    username(existingProfile.getEmail())
+                    .password(existingProfile.getPassword())
+                    .authorities(Collections.emptyList())
+                    .build();
+    }
+    
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/CategoryService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+
+import com.paras.Arthra.dto.CategoryDTO;
+import com.paras.Arthra.entity.CategoryEntity;
+import com.paras.Arthra.entity.ProfileEntity;
+import com.paras.Arthra.repository.CategoryRepository;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class CategoryService {
+    private final ProfileService profileService;
+    private final CategoryRepository categoryRepository;
+
+
+    public CategoryDTO saveCategory(CategoryDTO categoryDTO){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        if(categoryRepository.existsByNameAndProfileId(categoryDTO.getName(), profile.getId())){
+            throw new RuntimeException("Category with this name already exist");
+        }
+
+        CategoryEntity newCategory=toEntity(categoryDTO, profile);
+        newCategory=categoryRepository.save(newCategory);
+        return toDTO(newCategory);
+    }
+
+    public List<CategoryDTO> getCategoriesForCurrentUser(){
+        ProfileEntity profile = profileService.getCurrentProfile();
+        List<CategoryEntity>categories=categoryRepository.findByProfileId(profile.getId());
+        return categories.stream().map(this::toDTO).toList();
+    }
+
+    public List<CategoryDTO> getCategoriesByTypeForCurrentUser(String type){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        List<CategoryEntity>entities=categoryRepository.findByTypeAndProfileId(type,profile.getId());
+        return entities.stream().map(this::toDTO).toList();
+    }
+
+    public CategoryDTO updateCategory(Long categoryId,CategoryDTO dto){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        CategoryEntity existingCategory=categoryRepository.findByIdAndProfileId(categoryId, profile.getId())
+                                        .orElseThrow(()->new RuntimeException("Category not found or not accessable"));
+        existingCategory.setName(dto.getName());
+        existingCategory.setIcon(dto.getIcon());
+        existingCategory=categoryRepository.save(existingCategory);
+        return toDTO(existingCategory);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    private CategoryEntity toEntity(CategoryDTO categoryDTO, ProfileEntity profile) {
+        return CategoryEntity.builder()
+                .name(categoryDTO.getName())
+                .icon(categoryDTO.getIcon())
+                .profile(profile)
+                .type(categoryDTO.getType())
+                .build();
+    }
+
+    private CategoryDTO toDTO(CategoryEntity entity) {
+        return CategoryDTO.builder()
+                .id(entity.getId())
+                .profileId(entity.getProfile() != null ?  entity.getProfile().getId(): null)
+                .name(entity.getName())
+                .icon(entity.getIcon())
+                .createdAt(entity.getCreatedAt())
+                .updateddAt(entity.getUpdateddAt())
+                .type(entity.getType())
+                .build();
+
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/DashBoardService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import static java.util.stream.Stream.concat;
+
+import org.springframework.stereotype.Service;
+
+import com.paras.Arthra.dto.ExpenseDTO;
+import com.paras.Arthra.dto.IncomeDTO;
+import com.paras.Arthra.dto.RecentTransactionDTO;
+import com.paras.Arthra.entity.ProfileEntity;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class DashBoardService {
+
+    private final IncomeService incomeService;
+    private final ExpenseService expenseService;
+    private final ProfileService profileService;
+
+    public Map<String, Object> getDashboardData() {
+        ProfileEntity profile = profileService.getCurrentProfile();
+        Map<String, Object> returnValue = new LinkedHashMap<>();
+        List<IncomeDTO> latestIncomes = incomeService.getLatest5IncomesForCurrentUser();
+        List<ExpenseDTO> latestExpenses = expenseService.getLatest5ExpensesForCurrentUser();
+        List<RecentTransactionDTO> recentTransactions = concat(latestIncomes.stream().map(income ->
+                        RecentTransactionDTO.builder()
+                                .id(income.getId())
+                                .profileId(profile.getId())
+                                .icon(income.getIcon())
+                                .name(income.getName())
+                                .amount(income.getAmount())
+                                .date(income.getDate())
+                                .createdAt(income.getCreatedAt())
+                                .createdAt(income.getUpdatedAt())
+                                .type("income")
+                                .build()),
+                latestExpenses.stream().map(expense ->
+                        RecentTransactionDTO.builder()
+                                .id(expense.getId())
+                                .profileId(profile.getId())
+                                .icon(expense.getIcon())
+                                .name(expense.getName())
+                                .amount(expense.getAmount())
+                                .date(expense.getDate())
+                                .createdAt(expense.getCreatedAt())
+                                .createdAt(expense.getUpdatedAt())
+                                .type("expense")
+                                .build()))
+                .sorted((a, b) -> {
+                    int cmp = b.getDate().compareTo(a.getDate());
+                    if (cmp == 0 && a.getCreatedAt() != null && b.getCreatedAt() != null) {
+                        return b.getCreatedAt().compareTo(a.getCreatedAt());
+                    }
+                    return cmp;
+                }).collect(Collectors.toList());
+        returnValue.put("totalBalance",
+                incomeService.getTotalIncomesForCurrentUser()
+                        .subtract(expenseService.getTotalExpenseForCurrentUser()));
+        returnValue.put("totalIncome", incomeService.getTotalIncomesForCurrentUser());
+        returnValue.put("totalExpense", expenseService.getTotalExpenseForCurrentUser());
+        returnValue.put("recent5Expenses", latestExpenses);
+        returnValue.put("recent5Incomes", latestIncomes);
+        returnValue.put("recentTransactions", recentTransactions);
+        return returnValue;
+    }
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/EmailService.java
+================================================
+package com.paras.Arthra.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.MailException;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class EmailService {
+    private final JavaMailSender mailSender;
+
+    @Value("${spring.mail.properties.mail.smtp.from}")
+    private String fromEmail;
+
+    public void sendEmail(String to,String subject,String body){
+        try {
+            SimpleMailMessage message=new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(to);
+            message.setSubject(subject);
+            message.setText(body);
+            mailSender.send(message);
+        } catch (MailException e) {
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/ExpenseService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import com.paras.Arthra.dto.ExpenseDTO;
+import com.paras.Arthra.entity.CategoryEntity;
+import com.paras.Arthra.entity.ExpenseEntity;
+import com.paras.Arthra.entity.ProfileEntity;
+import com.paras.Arthra.repository.CategoryRepository;
+import com.paras.Arthra.repository.ExpenseRepository;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class ExpenseService {
+    private final CategoryRepository categoryRepository;
+    private final ExpenseRepository expenseRepository;
+    private final ProfileService profileService;
+
+    public ExpenseDTO addExpense(ExpenseDTO dto){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        CategoryEntity category=categoryRepository.findById(dto.getCategoryId())
+            .orElseThrow(()->new RuntimeException("Category not found"));
+        ExpenseEntity newExpense = toEntity(dto,profile,category);
+        newExpense=expenseRepository.save(newExpense);
+        return toDTO(newExpense);
+    }
+
+    public List<ExpenseDTO> getCurrentMonthExpensesForCurrentUser(){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        LocalDate now=LocalDate.now();
+        LocalDate startDate=now.withDayOfMonth(1);
+        LocalDate endDate=now.withDayOfMonth(now.lengthOfMonth());
+        List<ExpenseEntity>list=expenseRepository.findByProfileIdAndDateBetween(profile.getId(), startDate, endDate);
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public List<ExpenseDTO> getLatest5ExpensesForCurrentUser(){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        List<ExpenseEntity> list=expenseRepository.findTop5ByProfileIdOrderByDateDesc(profile.getId());
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public BigDecimal getTotalExpenseForCurrentUser(){
+        ProfileEntity profileEntity=profileService.getCurrentProfile();
+        BigDecimal total=expenseRepository.findTotalExpenseByProfileId(profileEntity.getId());
+        return total!=null?total:BigDecimal.ZERO;
+    }
+
+    public List<ExpenseDTO> filterExpenses(LocalDate startDate,LocalDate endDate,String keyword,Sort sort){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        List<ExpenseEntity>list=expenseRepository.findByProfileIdAndDateBetweenAndNameContainingIgnoreCase(profile.getId(), startDate, endDate, keyword, sort);
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public List<ExpenseDTO> getExpensesForUserOnDate(Long profileId,LocalDate date){
+        List<ExpenseEntity>list=expenseRepository.findByProfileIdAndDate(profileId, date);
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public void deleteExpense(Long expenseId) {
+        ProfileEntity profile = profileService.getCurrentProfile();
+        ExpenseEntity entity = expenseRepository.findById(expenseId)
+                .orElseThrow(() -> new RuntimeException("Expense not found"));
+        if (!entity.getProfile().getId().equals(profile.getId())) {
+            throw new RuntimeException("Unauthorized to delete this expense");
+        }
+        expenseRepository.delete(entity);
+    }
+
+    private ExpenseEntity toEntity(ExpenseDTO dto, ProfileEntity profile, CategoryEntity category) {
+        return ExpenseEntity.builder()
+                .name(dto.getName())
+                .icon(dto.getIcon())
+                .amount(dto.getAmount())
+                .date(dto.getDate())
+                .profile(profile)
+                .category(category)
+                .build();
+    }
+
+    private ExpenseDTO toDTO(ExpenseEntity entity) {
+        return ExpenseDTO.builder()
+                .id(entity.getId())
+                .name(entity.getName())
+                .icon(entity.getIcon())
+                .categoryId(entity.getCategory() != null ? entity.getCategory().getId(): null)
+                .categoryName(entity.getCategory() != null ? entity.getCategory().getName(): "N/A")
+                .amount(entity.getAmount())
+                .date(entity.getDate())
+                .createdAt(entity.getCreatedAt())
+                .updatedAt(entity.getUpdatedAt())
+                .build();
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/IncomeService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import com.paras.Arthra.dto.IncomeDTO;
+import com.paras.Arthra.entity.CategoryEntity;
+import com.paras.Arthra.entity.IncomeEntity;
+import com.paras.Arthra.entity.ProfileEntity;
+import com.paras.Arthra.repository.CategoryRepository;
+import com.paras.Arthra.repository.IncomeRepository;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+
+public class IncomeService {
+    private final CategoryRepository categoryRepository;
+    private final IncomeRepository incomeRepository;
+    private final ProfileService profileService;
+
+    public IncomeDTO addExpense(IncomeDTO dto){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        CategoryEntity category=categoryRepository.findById(dto.getCategoryId())
+            .orElseThrow(()->new RuntimeException("Category not found"));
+        IncomeEntity newExpense = toEntity(dto,profile,category);
+        newExpense=incomeRepository.save(newExpense);
+        return toDTO(newExpense);
+    }
+
+    public List<IncomeDTO> getCurrentMonthIncomesForCurrentUser(){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        LocalDate now=LocalDate.now();
+        LocalDate startDate=now.withDayOfMonth(1);
+        LocalDate endDate=now.withDayOfMonth(now.lengthOfMonth());
+        List<IncomeEntity>list=incomeRepository.findByProfileIdAndDateBetween(profile.getId(), startDate, endDate);
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public List<IncomeDTO> getLatest5IncomesForCurrentUser(){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        List<IncomeEntity> list=incomeRepository.findTop5ByProfileIdOrderByDateDesc(profile.getId());
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public BigDecimal getTotalIncomesForCurrentUser(){
+        ProfileEntity profileEntity=profileService.getCurrentProfile();
+        BigDecimal total=incomeRepository.findTotalExpenseByProfileId(profileEntity.getId());
+        return total!=null?total:BigDecimal.ZERO;
+    }
+
+    public List<IncomeDTO> filterIncomes(LocalDate startDate,LocalDate endDate,String keyword,Sort sort){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        List<IncomeEntity>list=incomeRepository.findByProfileIdAndDateBetweenAndNameContainingIgnoreCase(profile.getId(), startDate, endDate, keyword, sort);
+        return list.stream().map(this::toDTO).toList();
+    }
+
+    public void deleteIncome(Long incomeId){
+        ProfileEntity profile=profileService.getCurrentProfile();
+        IncomeEntity entity=incomeRepository.findById(incomeId )
+                            .orElseThrow(()->new RuntimeException("Income not found"));
+        if(!entity.getProfile().getId().equals(profile.getId())){
+            throw new RuntimeException("Unauthorized to delete this expense");
+        }
+        incomeRepository.delete(entity);
+    }
+
+    private IncomeEntity toEntity(IncomeDTO dto, ProfileEntity profile, CategoryEntity category) {
+        return IncomeEntity.builder()
+                .name(dto.getName())
+                .icon(dto.getIcon())
+                .amount(dto.getAmount())
+                .date(dto.getDate())
+                .profile(profile)
+                .category(category)
+                .build();
+    }
+
+    private IncomeDTO toDTO(IncomeEntity entity) {
+        return IncomeDTO.builder()
+                .id(entity.getId())
+                .name(entity.getName())
+                .icon(entity.getIcon())
+                .categoryId(entity.getCategory() != null ? entity.getCategory().getId(): null)
+                .categoryName(entity.getCategory() != null ? entity.getCategory().getName(): "N/A")
+                .amount(entity.getAmount())
+                .date(entity.getDate())
+                .createdAt(entity.getCreatedAt())
+                .updatedAt(entity.getUpdatedAt())
+                .build();
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/service/NotificationService.java
+================================================
+package com.paras.Arthra.service;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.paras.Arthra.dto.ExpenseDTO;
+import com.paras.Arthra.entity.ProfileEntity;
+import com.paras.Arthra.repository.ProfileRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+@Transactional(readOnly = true)
+public class NotificationService {
+    private final ProfileRepository profileRepository;
+    private final EmailService emailService;
+    private final ExpenseService expenseService;
+
+    @Value("${money.manager.frontend.url}")
+    private String frontendUrl;
+    
+    @Scheduled(cron="0 0 22 * * *",zone="IST")
+    public void sendDailyIncomeExpenseReminder(){
+        log.info("Job started: sendDailyIncomeExpenseReminder()");
+        List<ProfileEntity> profiles = profileRepository.findAll();
+        for(ProfileEntity profile : profiles) {
+            String body = "Hi " + profile.getFullName() + ",<br><br>"
+                    + "This is a friendly reminder to add your income and expenses for today in Money Manager.<br><br>"
+                    + "<a href="+frontendUrl+" style='display:inline-block;padding:10px 20px;background-color:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;font-weight:bold;'>Go to Money Manager</a>"
+                    + "<br><br>Best regards,<br>Money Manager Team";
+            emailService.sendEmail(profile.getEmail(), "Daily reminder: Add your income and expenses", body);
+        }
+        log.info("Job completed: sendDailyIncomeExpenseReminder()");
+    }
+
+
+    // @Scheduled(cron = "0 * * * * *", zone = "IST")
+    @Scheduled(cron = "0 0 23 * * *", zone = "IST")
+    public void sendDailyExpenseSummary() {
+        log.info("Job started: sendDailyExpenseSummary()");
+        List<ProfileEntity> profiles = profileRepository.findAll();
+        for (ProfileEntity profile : profiles) {
+            List<ExpenseDTO> todaysExpenses = expenseService.getExpensesForUserOnDate(profile.getId(), LocalDate.now());
+            if (!todaysExpenses.isEmpty()) {
+                StringBuilder table = new StringBuilder();
+                table.append("<table style='border-collapse:collapse;width:100%;'>");
+                table.append("<tr style='background-color:#f2f2f2;'><th style='border:1px solid #ddd;padding:8px;'>S.No</th><th style='border:1px solid #ddd;padding:8px;'>Name</th><th style='border:1px solid #ddd;padding:8px;'>Amount</th><th style='border:1px solid #ddd;padding:8px;'>Category</th></tr>");
+                int i = 1;
+                for(ExpenseDTO expense : todaysExpenses) {
+                    table.append("<tr>");
+                    table.append("<td style='border:1px solid #ddd;padding:8px;'>").append(i++).append("</td>");
+                    table.append("<td style='border:1px solid #ddd;padding:8px;'>").append(expense.getName()).append("</td>");
+                    table.append("<td style='border:1px solid #ddd;padding:8px;'>").append(expense.getAmount()).append("</td>");
+                    table.append("<td style='border:1px solid #ddd;padding:8px;'>").append(expense.getCategoryId() != null ? expense.getCategoryName() : "N/A").append("</td>");
+                    table.append("</tr>");
+                }
+                table.append("</table>");
+                String body = "Hi "+profile.getFullName()+",<br/><br/> Here is a summary of your expenses for today:<br/><br/>"+table+"<br/><br/>Best regards,<br/>Money Manager Team";
+                emailService.sendEmail(profile.getEmail(), "Your daily Expense summary", body);
+            }
+        }
+        log.info("Job completed: sendDailyExpenseSummary()");
+    }
 }
 
 
@@ -769,13 +2298,23 @@ FILE: src/main/java/com/paras/Arthra/service/ProfileService.java
 ================================================
 package com.paras.Arthra.service;
 
+import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import com.paras.Arthra.dto.AuthDTO;
 import com.paras.Arthra.dto.ProfileDTO;
 import com.paras.Arthra.entity.ProfileEntity;
 import com.paras.Arthra.repository.ProfileRepository;
+import com.paras.Arthra.util.JwtUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -783,12 +2322,21 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor //Lombok annotation used in Java to automatically generate a constructor that takes as parameters all final fields and fields marked with @NonNull in your class.
 public class ProfileService {
     private final ProfileRepository profileRepository;
+    private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtUtil jwtUtil;
 
     public ProfileDTO registerProfile(ProfileDTO profileDTO){
-        System.out.println("Service "+profileDTO);
         ProfileEntity newProfile=toEntity(profileDTO);
         newProfile.setActivationToken(UUID.randomUUID().toString());
         newProfile=profileRepository.save(newProfile);
+
+        String activationLink="http://localhost:8080/api/v1.0/activate?token="+newProfile.getActivationToken();
+        String subject="Activate your Money Manager Account ";
+        String body="Click on the following link to activate your account: "+activationLink;
+
+        emailService.sendEmail(newProfile.getEmail(), subject, body);
         return toDTO(newProfile);
     }
 
@@ -797,7 +2345,7 @@ public class ProfileService {
                 .id(profileDTO.getId())
                 .fullName(profileDTO.getFullName())
                 .email(profileDTO.getEmail())
-                .password(profileDTO.getPassword())
+                .password(passwordEncoder.encode(profileDTO.getPassword()))
                 .profileImageUrl(profileDTO.getProfileImageUrl())
                 .createdAt(profileDTO.getCreatedAt())
                 .updatedAt(profileDTO.getUpdatedAt())
@@ -813,6 +2361,188 @@ public class ProfileService {
                 .createdAt(profileEntity.getCreatedAt())
                 .updatedAt(profileEntity.getUpdatedAt())
                 .build();
+    }
+
+    public boolean activateProfile(String activationToken){
+        return profileRepository.findByActivationToken(activationToken).map((profile) -> {
+            profile.setIsActive(true);
+            profileRepository.save(profile);
+            return true;
+        }).orElse(false);
+    }
+
+    public boolean isAccountActive(String email){
+        return profileRepository.findByEmail(email).map(ProfileEntity::getIsActive).orElse(false);
+    }
+
+    public ProfileEntity getCurrentProfile(){
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return profileRepository.findByEmail(authentication.getName()).orElseThrow(()->new UsernameNotFoundException("Profile not found with email: "+authentication.getName()));
+    }
+    
+    public ProfileDTO getPublicProfile(String email){
+        ProfileEntity currentUser=null;
+        if(email==null){
+            currentUser=getCurrentProfile();
+        }else{
+            currentUser=profileRepository.findByEmail(email).orElseThrow(()->new UsernameNotFoundException("Profile not found with email: "+email));
+        }
+
+        return ProfileDTO.builder()
+                .id(currentUser.getId())
+                .fullName(currentUser.getFullName())
+                .email(currentUser.getEmail())
+                .profileImageUrl(currentUser.getProfileImageUrl())
+                .createdAt(currentUser.getCreatedAt())
+                .updatedAt(currentUser.getUpdatedAt())
+                .build();
+    }
+
+
+    
+    public Map<String,Object>authenticateAndGenerateToken(AuthDTO authDTO){
+        try {
+            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(
+                authDTO.getEmail(), // paras@gmail.com
+                authDTO.getPassword())); // Paras@123
+
+            /*
+                Step-by-Step Spring Security Authentication Flow (with details on principal, credentials, and token fields):
+
+                1. The client sends a login request (usually via an API endpoint, like /login) with the user's email and password.
+
+                2. In your service or controller, authentication is initiated using:
+                authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(authDTO.getEmail(), authDTO.getPassword())
+                );
+
+                3. A UsernamePasswordAuthenticationToken is created, where:
+                - principal: set to the user's email address (e.g., "paras@gmail.com").
+                - credentials: set to the user's raw password input (e.g., "Paras@123").
+                - authenticated: set to false (the token only carries credentials at this stage, but does NOT represent an authenticated user).
+
+                4. The authenticationManager (specifically, your ProviderManager instance, configured to use DaoAuthenticationProvider) receives this token.
+
+                5. DaoAuthenticationProvider starts the authentication process:
+                - Extracts the principal (email) from the token.
+                - Calls your configured UserDetailsService (AppUserDetailService) method:
+                    loadUserByUsername(principal) â€” here, principal is the email from the token.
+
+                6. In AppUserDetailService.loadUserByUsername(String email):
+                - The profileRepository queries the MySQL database for a user ProfileEntity with this email.
+                - If that user is not found, a UsernameNotFoundException is thrown â€” authentication fails immediately.
+                - If found, constructs and returns a UserDetails object containing:
+                    â€¢ username: the email from above,
+                    â€¢ password: the encoded (usually bcrypt) password from the database,
+                    â€¢ authorities: user permissions/roles (empty list here).
+
+                7. DaoAuthenticationProvider receives this UserDetails object.
+
+                8. DaoAuthenticationProvider retrieves credentials (raw password) from the authentication token
+                and the encoded password from the UserDetails fetched from the database.
+
+                9. The PasswordEncoder you configured is now used to check if the raw password (credentials in token) matches the encoded password in the UserDetails from the DB.
+
+                10. If passwords match:
+                - DaoAuthenticationProvider creates a new authenticated Authentication object:
+                    â€¢ Sets the principal to the email (user identifier).
+                    â€¢ Clears the credentials (removes the raw password for security).
+                    â€¢ Sets authenticated = true.
+                - This authentication object is returned from authenticationManager.
+
+                - For a traditional (stateful/session-based) setup:
+                    â€¢ Spring Security would store this authenticated object in the SecurityContext,
+                    making the user's authentication available for the whole session.
+
+                - For a stateless JWT-based setup (like this project):
+                    â€¢ The SecurityContext is only populated for the duration of the current login request.
+                    â€¢ You typically use this object to generate a JWT token (with the user's identity/claims) and return it to the client.
+                    â€¢ The server does NOT store any persistent session or authentication context.
+                    â€¢ For future requests, authentication info is rebuilt per request from the JWT token (via your filter),
+                    so the authenticated user is made available in the SecurityContext only for each request with a valid JWT.
+                    
+                11. If passwords do not match, or no user exists for the provided email:
+                    - An AuthenticationException (like BadCredentialsException or UsernameNotFoundException) is thrown, 
+                    and the login attempt fails.
+                    - No security context is established.
+
+                Key Point:
+                The "principal" is always the user identifier (email), and "credentials" are the raw password BEFORE authentication; after authentication, credentials are usually cleared for security.
+                The entire workflow is automated by the flow of AuthenticationManagers, Providers, and your UserDetailsService â€” you only provide the glue code and configuration.
+            */
+
+            String token=jwtUtil.generateToken(authDTO.getEmail());
+
+            return Map.of(
+                "Token",token,
+                "user",getPublicProfile(authDTO.getEmail())
+            );
+        } catch (AuthenticationException e) {
+            throw new RuntimeException("Invalid username or password");
+        }
+    }
+}
+
+
+
+================================================
+FILE: src/main/java/com/paras/Arthra/util/JwtUtil.java
+================================================
+package com.paras.Arthra.util;
+
+import java.util.Date;
+import java.util.function.Function;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
+
+@Component
+public class JwtUtil {
+    @Value("${jwt.secret}")
+    private String secret;
+
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String token) {
+        return Jwts.parser()
+                .setSigningKey(Keys.hmacShaKeyFor(secret.getBytes()))
+                .parseClaimsJws(token)
+                .getBody();
+    }
+
+    private Boolean isTokenExpired(String token) {
+        return extractExpiration(token).before(new Date());
+    }
+
+    public Boolean validateToken(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+    }
+
+    public String generateToken(String email) {
+        return Jwts.builder()
+                .setSubject(email)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) // 10 hours
+                .signWith(Keys.hmacShaKeyFor(secret.getBytes()), SignatureAlgorithm.HS256)
+                .compact();
     }
 }
 
@@ -835,6 +2565,27 @@ server.servlet.context-path=/api/v1.0
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
 spring.jpa.properties.hibernate.format_sql=true
+
+#Email Configurations
+spring.mail.host=smtp-relay.brevo.com
+spring.mail.port=587
+spring.mail.username=936b30001@smtp-brevo.com
+# spring.mail.username=${BREVO_USERNAME}
+spring.mail.password=vtXOCYhn6QEWBgw2
+# spring.mail.password=${BREVO_PASSWORD}
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+spring.mail.protocol=smtp
+spring.mail.properties.mail.smtp.from=parascet2025@gmail.com
+# spring.mail.properties.mail.smtp.from=${BREVO_FROM_EMAIL}
+
+
+jwt.secret=12tujnsgqiu90-9192n-678909876-jkkl
+
+money.manager.frontend.url=http://localhost:5173
+
+
+
 
 
 ================================================
