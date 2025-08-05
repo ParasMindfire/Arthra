@@ -28,6 +28,7 @@ public class NotificationService {
     private String frontendUrl;
     
     @Scheduled(cron="0 0 22 * * *",zone="IST")
+    // @Scheduled(cron="0 * * * * *",zone="IST")
     public void sendDailyIncomeExpenseReminder(){
         log.info("Job started: sendDailyIncomeExpenseReminder()");
         List<ProfileEntity> profiles = profileRepository.findAll();
