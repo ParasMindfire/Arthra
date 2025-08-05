@@ -1,6 +1,7 @@
 Directory structure:
 └── Arthra/
     ├── README.md
+    ├── Dockerfile
     ├── mvnw
     ├── mvnw.cmd
     ├── pom.xml
@@ -53,6 +54,7 @@ Directory structure:
     │       │               └── util/
     │       │                   └── JwtUtil.java
     │       └── resources/
+    │           ├── application-prod.properties
     │           └── application.properties
     └── .mvn/
         └── wrapper/
@@ -62,6 +64,28 @@ Directory structure:
 FILE: README.md
 ================================================
 [Non-text file]
+
+
+================================================
+FILE: Dockerfile
+================================================
+# STAGE 1: Build the JAR inside Docker
+FROM eclipse-temurin:21-jdk AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY mvnw .
+COPY .mvn .mvn
+RUN ./mvnw dependency:resolve                    
+COPY src ./src  
+RUN ./mvnw clean package -DskipTests          
+
+# STAGE 2: Copy JAR from Stage 1 to runtime image
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=builder /app/target/Arthra-0.0.1-SNAPSHOT.jar moneymanager-v1.0.jar
+EXPOSE 9090
+ENTRYPOINT ["java","-jar","moneymanager-v1.0.jar"]
+
 
 
 ================================================
@@ -575,6 +599,12 @@ FILE: pom.xml
         <groupId>org.apache.poi</groupId>
         <artifactId>poi-ooxml</artifactId>
         <version>5.2.5</version>
+    </dependency>
+
+	<dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
     </dependency>
 
 </dependencies>
@@ -2248,6 +2278,7 @@ public class NotificationService {
     private String frontendUrl;
     
     @Scheduled(cron="0 0 22 * * *",zone="IST")
+    // @Scheduled(cron="0 * * * * *",zone="IST")
     public void sendDailyIncomeExpenseReminder(){
         log.info("Job started: sendDailyIncomeExpenseReminder()");
         List<ProfileEntity> profiles = profileRepository.findAll();
@@ -2301,6 +2332,7 @@ package com.paras.Arthra.service;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -2327,12 +2359,15 @@ public class ProfileService {
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
 
+    @Value("${app.activation.url}")
+    private String activationUrl;
+
     public ProfileDTO registerProfile(ProfileDTO profileDTO){
         ProfileEntity newProfile=toEntity(profileDTO);
         newProfile.setActivationToken(UUID.randomUUID().toString());
         newProfile=profileRepository.save(newProfile);
 
-        String activationLink="http://localhost:8080/api/v1.0/activate?token="+newProfile.getActivationToken();
+        String activationLink=activationUrl+"/api/v1.0/activate?token="+newProfile.getActivationToken();
         String subject="Activate your Money Manager Account ";
         String body="Click on the following link to activate your account: "+activationLink;
 
@@ -2549,15 +2584,25 @@ public class JwtUtil {
 
 
 ================================================
+FILE: src/main/resources/application-prod.properties
+================================================
+spring.config.import=optional:file:.env[.properties]
+
+spring.datasource.url=${PROD_DB_URL}
+spring.datasource.username=${PROD_DB_USERNAME}
+spring.datasource.password=${PROD_DB_PASSWORD}
+
+
+================================================
 FILE: src/main/resources/application.properties
 ================================================
 spring.application.name=Arthra
-
+spring.config.import=optional:file:.env[.properties]
 
 # MySQL Configuration
-spring.datasource.url=jdbc:mysql://localhost:3306/moneymanager
-spring.datasource.username=springstudent
-spring.datasource.password=springstudent
+spring.datasource.url=${DB_URL}
+spring.datasource.username=${DB_USERNAME}
+spring.datasource.password=${DB_PASSWORD}
 
 server.servlet.context-path=/api/v1.0
 
@@ -2569,20 +2614,22 @@ spring.jpa.properties.hibernate.format_sql=true
 #Email Configurations
 spring.mail.host=smtp-relay.brevo.com
 spring.mail.port=587
-spring.mail.username=936b30001@smtp-brevo.com
-# spring.mail.username=${BREVO_USERNAME}
-spring.mail.password=vtXOCYhn6QEWBgw2
-# spring.mail.password=${BREVO_PASSWORD}
+spring.mail.username=${BREVO_USERNAME}
+spring.mail.password=${BREVO_PASSWORD}
 spring.mail.properties.mail.smtp.auth=true
 spring.mail.properties.mail.smtp.starttls.enable=true
 spring.mail.protocol=smtp
-spring.mail.properties.mail.smtp.from=parascet2025@gmail.com
-# spring.mail.properties.mail.smtp.from=${BREVO_FROM_EMAIL}
+spring.mail.properties.mail.smtp.from=${BREVO_FROM_EMAIL}
 
 
-jwt.secret=12tujnsgqiu90-9192n-678909876-jkkl
+jwt.secret=${JWT_SECRET}
 
-money.manager.frontend.url=http://localhost:5173
+money.manager.frontend.url=${MONEY_MANAGER_FRONTEND_URL}
+app.activation.url=${MONEY_MANAGER_BACKEND_URL}
+
+
+#To activate prod profile
+spring.profiles.active=prod
 
 
 

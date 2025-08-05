@@ -4,6 +4,11 @@ WORKDIR /app
 COPY pom.xml .
 COPY mvnw .
 COPY .mvn .mvn
+
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
+# Now run the commands
 RUN ./mvnw dependency:resolve                    
 COPY src ./src  
 RUN ./mvnw clean package -DskipTests          
